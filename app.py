@@ -13,6 +13,7 @@ from data_loader import (
 )
 
 app = Dash(__name__, suppress_callback_exceptions=True)
+server = app.server
 app.title = "Dashboard Régularité"
 
 REFRESH_MS = 120000

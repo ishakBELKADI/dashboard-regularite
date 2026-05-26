@@ -67,10 +67,10 @@ LISTE_GARES_ALLEMAGNE = [
 
 
 def load_theoretical_data():
-    stops = pd.read_csv("../Recuperation PTR/theorique/stops.txt")
-    trips = pd.read_csv("../Recuperation PTR/theorique/trips.txt")
-    stop_times = pd.read_csv("../Recuperation PTR/theorique/stop_times.txt")
-    calendar_dates = pd.read_csv("../Recuperation PTR/theorique/calendar_dates.txt")
+    stops = pd.read_csv("Recuperation PTR/theorique/stops.txt")
+    trips = pd.read_csv("Recuperation PTR/theorique/trips.txt")
+    stop_times = pd.read_csv("Recuperation PTR/theorique/stop_times.txt")
+    calendar_dates = pd.read_csv("Recuperation PTR/theorique/calendar_dates.txt")
 
     date_today = int(datetime.today().strftime("%Y%m%d"))
 
