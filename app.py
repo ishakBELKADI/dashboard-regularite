@@ -1,4 +1,4 @@
-from dash import Dash, html, dash_table, dcc, Input, Output, ctx
+from dash import Dash, html, dash_table, dcc, Input, Output, State, ctx, ALL
 import plotly.express as px
 import pandas as pd
 from datetime import datetime, timedelta
@@ -371,6 +371,54 @@ app.layout = html.Div(
                                 "fontWeight": "bold",
                                 "backgroundColor": "#eef1f4",
                             },
+                            markdown_options={"html": True},
+                        ),
+                    ],
+                )
+            ],
+        ),
+
+        html.Div(
+            id="popup-gare-regularite",
+            style=POPUP_STYLE_CLOSED,
+            children=[
+                html.Div(
+                    style={
+                        "backgroundColor": "white",
+                        "width": "85%",
+                        "maxHeight": "85%",
+                        "overflowY": "auto",
+                        "borderRadius": "16px",
+                        "padding": "20px",
+                    },
+                    children=[
+                        dcc.Store(id="selected-gare-regularite"),
+
+                        html.Div(
+                            style={"display": "flex", "justifyContent": "space-between"},
+                            children=[
+                                html.H3(id="titre-popup-gare-regularite"),
+                                html.Button("Fermer", id="close-popup-gare-regularite", n_clicks=0),
+                            ],
+                        ),
+
+                        dcc.Tabs(
+                            id="tabs-gare-regularite",
+                            value="regulier",
+                            children=[
+                                dcc.Tab(label="Trains réguliers", value="regulier"),
+                                dcc.Tab(label="Trains irréguliers", value="irregulier"),
+                            ],
+                        ),
+
+                        dash_table.DataTable(
+                            id="table-popup-gare-regularite",
+                            page_size=15,
+                            sort_action="native",
+                            filter_action="native",
+                            style_table={"overflowX": "auto", "marginTop": "12px"},
+                            style_cell={"textAlign": "left", "padding": "8px", "fontSize": "13px"},
+                            style_header={"fontWeight": "bold", "backgroundColor": "#eef1f4"},
                             markdown_options={"html": True},
                         ),
                     ],
@@ -1309,13 +1357,30 @@ def update_dashboard(
     )
 
     kpi_gares_moins_regulieres = [
-        kpi_card(
+    html.Div(
+        id={"type": "card-gare-reg", "index": row["stop_name"]},
+        n_clicks=0,
+        style={"cursor": "pointer"},
+        children=kpi_card(
             row["stop_name"],
             f"{row['regularite_pct']} %",
             f"{int(row['voyageurs_reguliers'])} / {int(row['voyageurs_total'])} voyageurs réguliers"
         )
-        for _, row in gares_moins_regulieres.iterrows()
+    )
+    for _, row in gares_moins_regulieres.iterrows()
     ]
+
+
+
+
+
+
+
+
+
+
+
+
     if not regularite_gare.empty:
         regularite_gare_chart = regularite_gare.sort_values("regularite_pct", ascending=True)
 
@@ -2879,6 +2944,121 @@ def toggle_popup_accostage_surveillance(open_clicks, close_clicks):
     ]
 
     return POPUP_STYLE_OPEN, popup_df.to_dict("records"), columns
+
+
+
+@app.callback(
+    Output("popup-gare-regularite", "style"),
+    Output("titre-popup-gare-regularite", "children"),
+    Output("table-popup-gare-regularite", "data"),
+    Output("table-popup-gare-regularite", "columns"),
+    Output("selected-gare-regularite", "data"),
+    Input({"type": "card-gare-reg", "index": ALL}, "n_clicks"),
+    Input("close-popup-gare-regularite", "n_clicks"),
+    Input("tabs-gare-regularite", "value"),
+    State("selected-gare-regularite", "data"),
+)
+def toggle_popup_gare_regularite(clicks_gares, close_clicks, tab_value, selected_gare):
+    trigger = ctx.triggered_id
+    trigger_info = ctx.triggered[0] if ctx.triggered else {}
+
+    if trigger == "close-popup-gare-regularite":
+        return POPUP_STYLE_CLOSED, "", [], [], None
+
+    if isinstance(trigger, dict) and trigger.get("type") == "card-gare-reg":
+        if not trigger_info.get("value"):
+            return POPUP_STYLE_CLOSED, "", [], [], None
+
+        selected_gare = trigger.get("index")
+
+    elif trigger == "tabs-gare-regularite":
+        if not selected_gare:
+            return POPUP_STYLE_CLOSED, "", [], [], None
+
+    else:
+        return POPUP_STYLE_CLOSED, "", [], [], None
+    
+
+
+    
+    df = get_realtime_df().copy()
+    df = apply_retard_metier_desserte(df)
+    df = enrich_passage_flags(df)
+
+    df = df[
+        (df["desserte_traversee"]) &
+        (df["stop_name"] == selected_gare)
+    ].copy()
+
+    df["voyageurs_descendants"] = pd.to_numeric(
+        df.get("voyageurs_descendants", 0),
+        errors="coerce"
+    ).fillna(0).astype(int)
+
+    df["gare_reguliere"] = df["retard_metier_desserte_s"] <= SEUIL_REGULARITE_S
+
+    if tab_value == "regulier":
+        df = df[df["gare_reguliere"]].copy()
+    else:
+        df = df[~df["gare_reguliere"]].copy()
+
+    def build_train_link(train_number, date_trip):
+        train_str = str(train_number).strip()
+        if len(train_str) == 5:
+            train_str = "0" + train_str
+
+        date_str = str(date_trip) if pd.notna(date_trip) else datetime.now().strftime("%d%m%Y")
+        if len(date_str) == 8 and date_str.isdigit():
+            date_str = f"{date_str[6:8]}{date_str[4:6]}{date_str[0:4]}"
+
+        return f"https://fichevietrain.sis.sncf.fr/#/detailTrain/{train_str}/date/{date_str}"
+
+    if not df.empty:
+        df["retard_metier_m"] = (df["retard_metier_desserte_s"] / 60).round(2)
+        df["fiche_train"] = df.apply(
+            lambda r: f"[Ouvrir]({build_train_link(r['train_number'], r.get('date_trip'))})",
+            axis=1
+        )
+
+        popup_df = df[[
+            "train_number",
+            "stop_name",
+            "arrival_time",
+            "arrival_real",
+            "retard_metier_m",
+            "voyageurs_descendants",
+            "fiche_train",
+        ]].copy()
+    else:
+        popup_df = pd.DataFrame(columns=[
+            "train_number",
+            "stop_name",
+            "arrival_time",
+            "arrival_real",
+            "retard_metier_m",
+            "voyageurs_descendants",
+            "fiche_train",
+        ])
+
+    columns = [
+        {"name": "Train", "id": "train_number"},
+        {"name": "Gare", "id": "stop_name"},
+        {"name": "Arrivée théorique", "id": "arrival_time"},
+        {"name": "Arrivée réelle", "id": "arrival_real"},
+        {"name": "Retard métier (min)", "id": "retard_metier_m"},
+        {"name": "Voyageurs descendants", "id": "voyageurs_descendants"},
+        {"name": "Lien SIS", "id": "fiche_train", "presentation": "markdown"},
+    ]
+
+    return (
+        POPUP_STYLE_OPEN,
+        f"Trains passés par {selected_gare}",
+        popup_df.to_dict("records"),
+        columns,
+        selected_gare,
+    )
+
+
 
 if __name__ == "__main__":
     app.run(debug=True, use_reloader=False)
