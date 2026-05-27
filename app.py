@@ -688,6 +688,26 @@ app.layout = html.Div(
                                 dcc.Graph(id="regularite-gares-chart", config=GRAPH_CONFIG)
                             ],
                         ),
+
+                        section_title(
+                            "Voyageurs réguliers / irréguliers par gare",
+                            "Comparaison du volume voyageurs par gare hors gares allemandes"
+                        ),
+
+                        html.Div(
+                            style={
+                                "backgroundColor": "white",
+                                "borderRadius": "18px",
+                                "padding": "12px",
+                                "boxShadow": "0 4px 16px rgba(0,0,0,0.08)",
+                                "marginBottom": "18px",
+                            },
+                            children=[
+                                dcc.Graph(id="voyageurs-regularite-gares-chart", config=GRAPH_CONFIG)
+                            ],
+                        ),
+
+
                 html.Div(
                     style={
                         "backgroundColor": "white",
@@ -1112,6 +1132,7 @@ app.layout = html.Div(
     Output("terminus-chart", "figure"),
     Output("kpi-gares-moins-regulieres", "children"),
     Output("regularite-gares-chart", "figure"),
+    Output("voyageurs-regularite-gares-chart", "figure"),
     Output("table-trains", "data"),
     Output("table-trains", "columns"),
     Input("refresh", "n_intervals"),
@@ -1412,6 +1433,67 @@ def update_dashboard(
         )
     else:
         fig_regularite_gares = px.bar(title="Régularité par gare - aucune donnée")
+
+    df_voy_gare = df[
+        (df["desserte_traversee"]) &
+        (df["stop_name"].isin(LISTE_GARES_AXE_EST))
+    ].copy()
+
+    df_voy_gare["voyageurs_descendants"] = pd.to_numeric(
+        df_voy_gare.get("voyageurs_descendants", 0),
+        errors="coerce"
+    ).fillna(0)
+
+    df_voy_gare["statut_regularite"] = df_voy_gare["retard_metier_desserte_s"].apply(
+        lambda x: "Voyageurs réguliers"
+        if x <= SEUIL_REGULARITE_S
+        else "Voyageurs irréguliers"
+    )
+
+    voyageurs_gare_resume = (
+        df_voy_gare
+        .groupby(["stop_name", "statut_regularite"], as_index=False)
+        .agg(voyageurs=("voyageurs_descendants", "sum"))
+    )
+
+    voyageurs_gare_resume = voyageurs_gare_resume[
+        voyageurs_gare_resume["voyageurs"] > 0
+    ].copy()
+
+    if not voyageurs_gare_resume.empty:
+        fig_voyageurs_gares = px.bar(
+            voyageurs_gare_resume,
+            x="stop_name",
+            y="voyageurs",
+            color="statut_regularite",
+            barmode="group",
+            text="voyageurs",
+            title="Voyageurs réguliers / irréguliers par gare",
+            labels={
+                "stop_name": "Gare",
+                "voyageurs": "Voyageurs descendants",
+                "statut_regularite": "Statut",
+            },
+            color_discrete_map={
+                "Voyageurs réguliers": "#16a34a",
+                "Voyageurs irréguliers": "#dc2626",
+            },
+        )
+
+        fig_voyageurs_gares.update_traces(textposition="outside")
+
+        fig_voyageurs_gares.update_layout(
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            xaxis_title="Gare",
+            yaxis_title="Voyageurs descendants",
+            xaxis_tickangle=-35,
+            height=500,
+        )
+    else:
+        fig_voyageurs_gares = px.bar(
+            title="Voyageurs réguliers / irréguliers par gare - aucune donnée"
+        )
 
     trains_uniques = df["trip_id"].nunique() if not df.empty else 0
     
@@ -2030,6 +2112,7 @@ def update_dashboard(
         fig_terminus,
         kpi_gares_moins_regulieres,
         fig_regularite_gares,
+        fig_voyageurs_gares,
         table_df.to_dict("records"),
         [{"name": c, "id": c} for c in table_df.columns],
         )
@@ -2980,7 +3063,7 @@ def toggle_popup_gare_regularite(clicks_gares, close_clicks, tab_value, selected
     
 
 
-    
+
     df = get_realtime_df().copy()
     df = apply_retard_metier_desserte(df)
     df = enrich_passage_flags(df)
