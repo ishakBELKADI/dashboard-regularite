@@ -613,21 +613,28 @@ def compute_regularite_metrics(df):
 
             # Allemagne -> France
             # On neutralise le retard d'entrée en France
+            # Allemagne -> France
+            # On neutralise le dernier retard de départ constaté en Allemagne
             if first_is_de and not last_is_de:
 
-                retard_entree_france = g_fr.iloc[0]["retard_s"]
+                g_de = g[g["is_allemagne"]].copy()
+                derniere_gare_de = g_de.iloc[-1]
 
-                if pd.isna(retard_entree_france):
-                    retard_entree_france = 0
+                if "departure_delay_s" in g_de.columns:
+                    retard_reference = derniere_gare_de["departure_delay_s"]
+                else:
+                    retard_reference = derniere_gare_de["retard_s"]
+
+                if pd.isna(retard_reference):
+                    retard_reference = 0
 
                 g_fr["retard_metier_desserte_s"] = (
                     g_fr["retard_s"].fillna(0)
-                    - retard_entree_france
+                    - retard_reference
                 ).clip(lower=0)
 
                 rows.append(g_fr)
                 continue
-
             # France -> Allemagne
             # Les retards en Allemagne ne comptent pas
             if not first_is_de and last_is_de:
@@ -786,17 +793,30 @@ def compute_regularite_metrics(df):
                 continue
 
             # Allemagne -> France
+            # Allemagne -> France
             if first_is_de and not last_is_de:
-                entree_france = g_fr.iloc[0]
+                g_de = g[g["is_allemagne"]].copy()
+                derniere_gare_de = g_de.iloc[-1]
+
                 terminus = g_fr.iloc[-1].copy()
 
-                retard_entree = entree_france["retard_s"] if pd.notna(entree_france["retard_s"]) else 0
+                if "departure_delay_s" in g_de.columns:
+                    retard_reference = derniere_gare_de["departure_delay_s"]
+                else:
+                    retard_reference = derniere_gare_de["retard_s"]
+
+                if pd.isna(retard_reference):
+                    retard_reference = 0
+
                 retard_fin = terminus["retard_s"] if pd.notna(terminus["retard_s"]) else 0
 
-                terminus["retard_terminus_metier_s"] = max(retard_fin - retard_entree, 0)
+                terminus["retard_terminus_metier_s"] = max(
+                    retard_fin - retard_reference,
+                    0
+                )
+
                 rows.append(terminus)
                 continue
-
             # Cas atypique : dernière gare française
             terminus = g_fr.iloc[-1].copy()
             terminus["retard_terminus_metier_s"] = terminus["retard_s"]

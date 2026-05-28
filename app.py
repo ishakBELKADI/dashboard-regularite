@@ -163,15 +163,26 @@ def apply_retard_metier_desserte(df):
         incoming_from_germany = is_gare_allemande(train_df.iloc[0]["stop_name"])
 
         if incoming_from_germany:
-            retard_frontiere = fr_df.iloc[0]["retard_s"]
+            de_df = train_df[
+                train_df["stop_name"].apply(is_gare_allemande)
+            ].copy()
+
+            derniere_gare_de = de_df.iloc[-1]
+
+            if "departure_delay_s" in de_df.columns:
+                retard_reference = derniere_gare_de["departure_delay_s"]
+            else:
+                retard_reference = derniere_gare_de["retard_s"]
+
+            if pd.isna(retard_reference):
+                retard_reference = 0
 
             for idx, row in fr_df.iterrows():
                 df.loc[idx, "retard_metier_desserte_s"] = max(
                     0,
-                    row["retard_s"] - retard_frontiere
+                    row["retard_s"] - retard_reference
                 )
-
-    return df
+            return df
 
 
 def kpi_card(title, value, subtitle="", bg="white", color="#111"):
@@ -1196,19 +1207,28 @@ def update_dashboard(
 
         if incoming_from_germany:
 
-            # retard frontière = premier retard en France
-            retard_frontiere = fr_df.iloc[0]["retard_s"]
+            de_df = train_df[
+                train_df["stop_name"].apply(is_gare_allemande_app)
+            ].copy()
 
-            # retard métier = retard supplémentaire créé en France
+            derniere_gare_de = de_df.iloc[-1]
+
+            if "departure_delay_s" in de_df.columns:
+                retard_reference = derniere_gare_de["departure_delay_s"]
+            else:
+                retard_reference = derniere_gare_de["retard_s"]
+
+            if pd.isna(retard_reference):
+                retard_reference = 0
+
             for idx, row in fr_df.iterrows():
 
-                retard_metier = row["retard_s"] - retard_frontiere
+                retard_metier = row["retard_s"] - retard_reference
 
                 if retard_metier < 0:
                     retard_metier = 0
 
                 df.loc[idx, "retard_metier_desserte_s"] = retard_metier
-
         else:
             # Train France -> Allemagne
             # On garde le retard FR uniquement
@@ -1787,14 +1807,20 @@ def update_dashboard(
 
         # Allemagne -> France : on neutralise le retard à l'entrée France
         if first_is_de:
-            retard_entree_france = g_fr.iloc[0]["retard_s"]
-            if pd.isna(retard_entree_france):
-                retard_entree_france = 0
+            g_de = g[g["is_allemagne"]].copy()
+            derniere_gare_de = g_de.iloc[-1]
+
+            if "departure_delay_s" in g_de.columns:
+                retard_reference = derniere_gare_de["departure_delay_s"]
+            else:
+                retard_reference = derniere_gare_de["retard_s"]
+
+            if pd.isna(retard_reference):
+                retard_reference = 0
 
             g_fr["retard_metier_desserte_s"] = (
-                g_fr["retard_s"] - retard_entree_france
+                g_fr["retard_s"] - retard_reference
             ).clip(lower=0)
-
         # France -> Allemagne ou train France : retard normal sur périmètre France
         else:
             g_fr["retard_metier_desserte_s"] = g_fr["retard_s"]
